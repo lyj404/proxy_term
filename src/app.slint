@@ -1,0 +1,245 @@
+import { VerticalBox, HorizontalBox, LineEdit, Button, ComboBox, GridBox } from "std-widgets.slint";
+
+component Separator {
+    Rectangle {
+        height: 1px;
+        background: #e0e0e0;
+    }
+}
+
+component StatusIndicator {
+    in property <string> text;
+    in property <int> status-type; // 0=默认, 1=成功, 2=失败
+
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+
+        Rectangle {
+            width: 8px;
+            height: 8px;
+            border-radius: 4px;
+            background: root.status-type == 1 ? #4caf50 : root.status-type == 2 ? #f44336 : #9e9e9e;
+            y: (parent.height - self.height) / 2;
+        }
+
+        Text {
+            text: root.text;
+            color: root.status-type == 1 ? #2e7d32 : root.status-type == 2 ? #c62828 : #616161;
+            font-size: 13px;
+            vertical-alignment: center;
+        }
+    }
+}
+
+component InputField {
+    in property <string> label;
+    in property <string> placeholder;
+    in property <string> value;
+    in property <bool> is-number: false;
+    callback edited(string);
+
+    HorizontalLayout {
+        spacing: 12px;
+
+        Text {
+            text: root.label;
+            width: 70px;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+            color: #424242;
+            font-size: 13px;
+        }
+
+        input := LineEdit {
+            placeholder-text: root.placeholder;
+            text: root.value;
+            input-type: root.is-number ? number : text;
+            edited(text) => {
+                root.edited(text);
+            }
+        }
+    }
+}
+
+export component AppWindow inherits Window {
+    title: "Proxy Term";
+    preferred-width: 420px;
+    preferred-height: 440px;
+    background: #fafafa;
+
+    in-out property <string> status-text: "未启动";
+    in-out property <bool> proxy-running: false;
+    in-out property <int> proxy-type-index: 0;
+    in-out property <int> status-type: 0;
+    in-out property <string> host: "127.0.0.1";
+    in-out property <string> port: "7890";
+    in-out property <string> no-proxy: "localhost,127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16";
+    in-out property <string> test-url: "http://www.google.com";
+
+    callback launch-clicked(string, string, string, string);
+    callback stop-clicked();
+    callback test-clicked(string, string, string, string);
+    callback save-config(string, string, string, string, string);
+
+    VerticalLayout {
+        padding: 20px;
+        spacing: 16px;
+
+        // 标题区域
+        HorizontalLayout {
+            alignment: center;
+            Text {
+                text: "代理终端";
+                font-size: 20px;
+                font-weight: 600;
+                color: #1a1a1a;
+            }
+        }
+
+        Separator {}
+
+        // 代理设置区域
+        VerticalLayout {
+            spacing: 12px;
+            padding-left: 4px;
+            padding-right: 4px;
+
+            Text {
+                text: "代理设置";
+                font-size: 14px;
+                font-weight: 500;
+                color: #616161;
+            }
+
+            HorizontalLayout {
+                spacing: 12px;
+
+                Text {
+                    text: "类型";
+                    width: 70px;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                    color: #424242;
+                    font-size: 13px;
+                }
+
+                proxy-type := ComboBox {
+                    model: ["HTTP", "SOCKS5"];
+                    current-index: root.proxy-type-index;
+                }
+            }
+
+            InputField {
+                label: "地址";
+                placeholder: "127.0.0.1";
+                value: root.host;
+                edited(text) => { root.host = text; }
+            }
+
+            InputField {
+                label: "端口";
+                placeholder: "7890";
+                value: root.port;
+                is-number: true;
+                edited(text) => { root.port = text; }
+            }
+
+            InputField {
+                label: "绕过列表";
+                placeholder: "localhost,127.0.0.1";
+                value: root.no-proxy;
+                edited(text) => { root.no-proxy = text; }
+            }
+        }
+
+        Separator {}
+
+        // 测试连接区域
+        VerticalLayout {
+            spacing: 12px;
+            padding-left: 4px;
+            padding-right: 4px;
+
+            Text {
+                text: "连接测试";
+                font-size: 14px;
+                font-weight: 500;
+                color: #616161;
+            }
+
+            InputField {
+                label: "测试地址";
+                placeholder: "http://www.google.com";
+                value: root.test-url;
+                edited(text) => { root.test-url = text; }
+            }
+        }
+
+        Separator {}
+
+        // 按钮区域
+        HorizontalLayout {
+            spacing: 12px;
+            alignment: center;
+
+            Button {
+                text: root.proxy-running ? "■ 停止代理" : "▶ 启动代理";
+                preferred-width: 120px;
+                clicked => {
+                    if (root.proxy-running) {
+                        root.stop-clicked();
+                    } else {
+                        root.save-config(
+                            proxy-type.current-value,
+                            root.host,
+                            root.port,
+                            root.no-proxy,
+                            root.test-url
+                        );
+                        root.launch-clicked(
+                            proxy-type.current-value,
+                            root.host,
+                            root.port,
+                            root.no-proxy
+                        );
+                    }
+                }
+            }
+
+            Button {
+                text: "测试连接";
+                preferred-width: 100px;
+                clicked => {
+                    root.save-config(
+                        proxy-type.current-value,
+                        root.host,
+                        root.port,
+                        root.no-proxy,
+                        root.test-url
+                    );
+                    root.test-clicked(
+                        proxy-type.current-value,
+                        root.host,
+                        root.port,
+                        root.test-url
+                    );
+                }
+            }
+        }
+
+        // 状态栏
+        Rectangle {
+            height: 32px;
+            background: #f5f5f5;
+            border-radius: 4px;
+
+            StatusIndicator {
+                text: root.status-text;
+                status-type: root.status-type;
+                x: 12px;
+                y: (parent.height - self.height) / 2;
+            }
+        }
+    }
+}
