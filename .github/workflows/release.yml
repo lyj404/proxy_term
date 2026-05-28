@@ -1,0 +1,127 @@
+name: Auto Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc gcc-mingw-w64-x86-64 libgl1-mesa-dev xorg-dev libxkbcommon-dev
+
+      - name: Verify cross compilers
+        run: |
+          x86_64-w64-mingw32-gcc --version
+          gcc --version
+
+      - name: Build Linux binary
+        run: cargo build --release
+
+      - name: Build Windows binary
+        run: cargo build --release --target x86_64-pc-windows-gnu
+
+      - name: Package artifacts
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          mkdir -p dist
+          tar czf "dist/proxy_term-${VERSION}-x86_64-linux.tar.gz" -C target/release proxy_term
+          zip -j "dist/proxy_term-${VERSION}-x86_64-windows.zip" target/x86_64-pc-windows-gnu/release/proxy_term.exe
+
+      - name: Upload release artifacts
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+
+      - name: Get version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Update PKGBUILD version
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          sed -i "s/pkgver=.*/pkgver=${VERSION}/" PKGBUILD
+
+      - name: Update .SRCINFO version
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          sed -i "s/pkgver = .*/pkgver = ${VERSION}/" .SRCINFO
+          sed -i "s/v[0-9.]*\//v${VERSION}\//g" .SRCINFO
+          sed -i "s/-[0-9.]*-linux/-${VERSION}-linux/g" .SRCINFO
+
+      - name: Publish to AUR
+        env:
+          AUR_PKGNAME: proxy-term-bin
+          AUR_USERNAME: ${{ secrets.AUR_USERNAME }}
+          AUR_EMAIL: ${{ secrets.AUR_EMAIL }}
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          WORKSPACE_DIR="$PWD"
+
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+          ssh-keyscan -t ed25519 aur.archlinux.org >> ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
+
+          rm -rf /tmp/local-repo
+          echo "=> Cloning existing AUR repository via HTTPS..."
+
+          if git clone "https://aur.archlinux.org/${AUR_PKGNAME}.git" /tmp/local-repo; then
+            cd /tmp/local-repo
+            git remote set-url origin "ssh://aur@aur.archlinux.org/${AUR_PKGNAME}.git"
+          else
+            echo "=> HTTPS clone failed, initializing fresh repository..."
+            mkdir -p /tmp/local-repo
+            cd /tmp/local-repo
+            git init -b master
+            git remote add origin "ssh://aur@aur.archlinux.org/${AUR_PKGNAME}.git"
+          fi
+
+          cp "$WORKSPACE_DIR/PKGBUILD" "$WORKSPACE_DIR/.SRCINFO" .
+
+          git config user.name "$AUR_USERNAME"
+          git config user.email "$AUR_EMAIL"
+
+          git add PKGBUILD .SRCINFO
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "=> No changes, skipping publish."
+            exit 0
+          fi
+
+          git commit -m "Update ${AUR_PKGNAME} to ${{ steps.version.outputs.version }}"
+
+          echo "=> Pushing to AUR..."
+          for i in $(seq 1 5); do
+            if git push -u origin master; then
+              echo "=> Successfully pushed to AUR!"
+              exit 0
+            fi
+            echo "=> Push failed, retrying in 10s ($i/5)..."
+            sleep 10
+          done
+
+          echo "=> Failed to push to AUR after 5 retries." >&2
+          exit 1
