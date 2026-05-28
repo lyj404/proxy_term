@@ -160,31 +160,21 @@ fn remove_config(content: &str) -> String {
 pub fn test_proxy_connection(config: &ProxyConfig, test_url: &str) -> Result<String, String> {
     let proxy_url = config.proxy_url();
 
-    let mut cmd = Command::new("curl");
-    cmd.args(&[
-        "-x",
-        &proxy_url,
-        "-s",
-        "-o",
-        if cfg!(target_os = "windows") { "NUL" } else { "/dev/null" },
-        "-w",
-        "%{http_code}",
-        "--connect-timeout",
-        "5",
-        test_url,
-    ]);
+    let proxy = ureq::Proxy::new(&proxy_url)
+        .map_err(|e| format!("无效的代理地址: {}", e))?;
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .proxy(Some(proxy))
+        .timeout_global(Some(std::time::Duration::from_secs(5)))
+        .build()
+        .into();
 
-    #[cfg(target_os = "windows")]
-    {
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-    }
+    let response = agent
+        .get(test_url)
+        .call()
+        .map_err(|e| format!("连接失败: {}", e))?;
 
-    let output = cmd
-        .output()
-        .map_err(|e| format!("执行 curl 失败: {}", e))?;
-
-    let status = String::from_utf8_lossy(&output.stdout);
-    if output.status.success() && (status.starts_with("2") || status.starts_with("3")) {
+    let status = response.status().as_u16();
+    if (200..400).contains(&status) {
         Ok(format!("连接成功 (HTTP {})", status))
     } else {
         Err(format!("连接失败 (HTTP {})", status))

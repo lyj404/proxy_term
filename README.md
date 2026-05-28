@@ -6,7 +6,7 @@
 
 - **代理类型**：支持 HTTP 和 SOCKS5 代理
 - **一键启动/停止**：通过 `setx` (Windows) 或 shell rc 文件 (Unix) 设置/清除代理环境变量
-- **连接测试**：使用 `curl` 验证代理是否可用
+- **连接测试**：验证代理是否可用
 - **配置持久化**：自动保存配置到 `%APPDATA%/proxy_term/config.json` (Windows) 或 `~/.config/proxy_term/config.json` (Unix)
 - **绕过列表**：支持配置直连地址列表（no_proxy）
 
@@ -19,5 +19,3 @@
 ```bash
 cargo build --release
 ```
-
-依赖：需要 `curl` 命令用于连接测试。
