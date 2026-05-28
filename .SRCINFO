@@ -3,7 +3,6 @@ pkgbase = proxy-term-bin
 	pkgver = 0.1.0
 	pkgrel = 1
 	url = https://github.com/lyj404/proxy_term
-	install =
 	arch = x86_64
 	license = Apache
 	conflicts = proxy-term
