@@ -125,7 +125,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     match result {
                         Ok(_) => {
                             app.set_proxy_running(false);
-                            app.set_status_text(SharedString::from("代理已停止，请打开新终端生效"));
+                            app.set_status_text(SharedString::from("代理已停止，新终端将不再使用代理"));
                             app.set_status_type(0);
                         }
                         Err(e) => {

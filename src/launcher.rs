@@ -56,16 +56,27 @@ pub fn set_proxy_env(config: &ProxyConfig) -> Result<(), String> {
 pub fn unset_proxy_env() -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        let keys = vec![
+        let keys = [
             "http_proxy", "https_proxy", "all_proxy", "no_proxy",
             "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
         ];
 
-        for key in keys {
-            let _ = Command::new("reg")
-                .args(&["delete", "HKCU\\Environment", "/v", key, "/f"])
-                .creation_flags(0x08000000) // CREATE_NO_WINDOW
-                .output();
+        let ps_commands: Vec<String> = keys
+            .iter()
+            .map(|k| format!("[Environment]::SetEnvironmentVariable('{}', $null, 'User')", k))
+            .collect();
+
+        let script = ps_commands.join("; ");
+
+        let output = Command::new("powershell")
+            .args(&["-NoProfile", "-NonInteractive", "-Command", &script])
+            .creation_flags(0x08000000)
+            .output()
+            .map_err(|e| format!("执行 PowerShell 失败: {}", e))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("停止代理失败: {}", stderr));
         }
     }
 
