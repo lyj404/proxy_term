@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="termGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF6B00" />
+      <stop offset="100%" stop-color="#FF3D00" />
+    </linearGradient>
+    <linearGradient id="globeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00F5D4" />
+      <stop offset="100%" stop-color="#0079FF" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#0A0B10" />
+  <path d="M 96,166 L 206,256 L 96,346" fill="none" stroke="url(#termGrad)" stroke-width="48" stroke-linecap="round" stroke-linejoin="round" />
+  <circle cx="346" cy="256" r="106" fill="none" stroke="url(#globeGrad)" stroke-width="26" />
+  <ellipse cx="346" cy="256" rx="44" ry="106" fill="none" stroke="url(#globeGrad)" stroke-width="20" />
+  <ellipse cx="346" cy="256" rx="106" ry="40" fill="none" stroke="url(#globeGrad)" stroke-width="20" />
+</svg>

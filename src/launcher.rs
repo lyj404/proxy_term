@@ -5,7 +5,9 @@ use std::os::windows::process::CommandExt;
 
 use crate::proxy::ProxyConfig;
 
+#[allow(dead_code)]
 const START_MARKER: &str = "# Proxy Term - Start";
+#[allow(dead_code)]
 const END_MARKER: &str = "# Proxy Term - End";
 
 pub fn set_proxy_env(config: &ProxyConfig) -> Result<(), String> {
@@ -109,6 +111,7 @@ fn get_shell_rc_file(shell: &str) -> Result<String, String> {
     Ok(rc_file)
 }
 
+#[allow(dead_code)]
 fn replace_or_append_config(content: &str, new_config: &str) -> String {
     if let Some(start) = content.find(START_MARKER) {
         if let Some(end) = content.find(END_MARKER) {
@@ -132,6 +135,7 @@ fn replace_or_append_config(content: &str, new_config: &str) -> String {
     }
 }
 
+#[allow(dead_code)]
 fn remove_config(content: &str) -> String {
     if let Some(start) = content.find(START_MARKER) {
         if let Some(end) = content.find(END_MARKER) {

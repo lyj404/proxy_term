@@ -8,6 +8,7 @@ pub enum ProxyType {
 }
 
 impl ProxyType {
+    #[allow(dead_code)]
     pub fn from_index(index: usize) -> Self {
         match index {
             0 => ProxyType::Http,
