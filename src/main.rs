@@ -17,6 +17,10 @@ use tray_icon::{
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // 初始化 GTK（Linux 系统托盘依赖，需要在创建托盘前完成）
+    #[cfg(target_os = "linux")]
+    gtk::init().map_err(|e| format!("GTK 初始化失败: {}", e))?;
+
     let app = AppWindow::new()?;
 
     // 加载配置

@@ -3889,6 +3889,7 @@ dependencies = [
 name = "proxy_term"
 version = "0.1.0"
 dependencies = [
+ "gtk",
  "image",
  "serde",
  "serde_json",
