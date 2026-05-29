@@ -28,7 +28,7 @@ yay -S proxy-term-bin
 
 ### 其他 Linux 发行版
 
-从 [Releases](https://github.com/lyj404/proxy_term/releases) 下载对应系统的 tarball：
+从 [Releases](https://github.com/lyj404/proxy_term/releases) 下载：
 
 | 系统 | 下载文件 |
 |---|---|
