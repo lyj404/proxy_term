@@ -22,15 +22,21 @@ jobs:
         with:
           targets: x86_64-pc-windows-gnu
 
-      - name: Install Windows cross-compiler
+      - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-mingw-w64-x86-64 libglib2.0-dev
+          sudo apt-get install -y gcc gcc-mingw-w64-x86-64 libgl1-mesa-dev xorg-dev libxkbcommon-dev libglib2.0-dev libgtk-3-dev libayatana-appindicator3-dev libxdo-dev
 
       - name: Build Windows binary
         run: cargo build --release --target x86_64-pc-windows-gnu
 
-      - name: Build Linux binary in Arch container
+      - name: Build Ubuntu Linux binary
+        run: cargo build --release
+
+      - name: Rename Ubuntu binary
+        run: mv target/release/proxy-term target/release/proxy-term-ubuntu
+
+      - name: Build Arch Linux binary in container
         run: |
           docker run --rm \
             -v $PWD:/work \
@@ -49,11 +55,17 @@ jobs:
           VERSION="${GITHUB_REF#refs/tags/v}"
           mkdir -p dist
 
-          mkdir -p staging
-          cp target/release/proxy-term staging/
-          cp assets/proxy-term.desktop staging/
-          cp assets/logo.svg staging/
-          tar czf "dist/proxy_term-${VERSION}-x86_64-linux.tar.gz" -C staging .
+          mkdir -p staging-ubuntu
+          cp target/release/proxy-term-ubuntu staging-ubuntu/proxy-term
+          cp assets/proxy-term.desktop staging-ubuntu/
+          cp assets/logo.svg staging-ubuntu/
+          tar czf "dist/proxy_term-${VERSION}-x86_64-linux-ubuntu.tar.gz" -C staging-ubuntu .
+
+          mkdir -p staging-arch
+          cp target/release/proxy-term staging-arch/
+          cp assets/proxy-term.desktop staging-arch/
+          cp assets/logo.svg staging-arch/
+          tar czf "dist/proxy_term-${VERSION}-x86_64-linux-arch.tar.gz" -C staging-arch .
 
           zip -j "dist/proxy_term-${VERSION}-x86_64-windows.zip" target/x86_64-pc-windows-gnu/release/proxy-term.exe
 
@@ -76,7 +88,7 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           sed -i "s/pkgver = .*/pkgver = ${VERSION}/" .SRCINFO
           sed -i "s/v[0-9.]*\//v${VERSION}\//g" .SRCINFO
-          sed -i "s/-[0-9.]*-linux/-${VERSION}-linux/g" .SRCINFO
+          sed -i "s/-[0-9.]*-x86_64/-${VERSION}-x86_64/g" .SRCINFO
 
       - name: Publish to AUR
         env:

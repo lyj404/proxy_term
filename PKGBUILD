@@ -11,7 +11,7 @@ depends=('xdotool')
 makedepends=()
 conflicts=('proxy-term')
 provides=('proxy-term')
-source=("${url}/releases/download/v${pkgver}/proxy_term-${pkgver}-x86_64-linux.tar.gz")
+source=("${url}/releases/download/v${pkgver}/proxy_term-${pkgver}-x86_64-linux-arch.tar.gz")
 sha256sums=('SKIP')
 
 package() {

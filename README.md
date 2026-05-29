@@ -14,6 +14,38 @@
 
 启动后填写代理地址、端口等信息，点击 **启动代理** 即可生效（需要打开新终端）。点击 **停止代理** 清除所有代理环境变量。
 
+## 安装
+
+### Arch Linux（推荐）
+
+从 AUR 安装 `proxy-term-bin`：
+
+```bash
+yay -S proxy-term-bin
+```
+
+安装后桌面启动器（KDE/GNOME）可直接搜索 **Proxy Term**，命令行运行 `proxy-term`。
+
+### 其他 Linux 发行版
+
+从 [Releases](https://github.com/lyj404/proxy_term/releases) 下载对应系统的 tarball：
+
+| 系统 | 下载文件 |
+|---|---|
+| **Ubuntu / Debian** | `proxy_term-*-x86_64-linux-ubuntu.tar.gz` |
+| **Arch Linux** | `proxy_term-*-x86_64-linux-arch.tar.gz` |
+
+解压后运行 `./proxy-term`：
+
+```bash
+tar xzf proxy_term-*-x86_64-linux-*.tar.gz
+./proxy-term
+```
+
+### Windows
+
+下载 `proxy_term-*-x86_64-windows.zip`，解压运行 `proxy-term.exe`。
+
 ## 构建
 
 ```bash
