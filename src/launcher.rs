@@ -1,7 +1,7 @@
-use std::process::Command;
-
 #[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
+use winreg::enums::*;
+#[cfg(target_os = "windows")]
+use winreg::RegKey;
 
 use crate::proxy::ProxyConfig;
 
@@ -10,22 +10,63 @@ const START_MARKER: &str = "# Proxy Term - Start";
 #[allow(dead_code)]
 const END_MARKER: &str = "# Proxy Term - End";
 
+#[cfg(target_os = "windows")]
+fn broadcast_env_change() {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    use std::ptr;
+
+    const HWND_BROADCAST: isize = 0xFFFF;
+    const WM_SETTINGCHANGE: u32 = 0x001A;
+    const SMTO_ABORTIFHUNG: u32 = 0x0002;
+
+    extern "system" {
+        fn SendMessageTimeoutW(
+            hWnd: isize,
+            Msg: u32,
+            wParam: usize,
+            lParam: isize,
+            fuFlags: u32,
+            uTimeout: u32,
+            lpdwResult: *mut usize,
+        ) -> isize;
+    }
+
+    let wide: Vec<u16> = OsStr::new("Environment")
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+
+    unsafe {
+        SendMessageTimeoutW(
+            HWND_BROADCAST,
+            WM_SETTINGCHANGE,
+            0,
+            wide.as_ptr() as isize,
+            SMTO_ABORTIFHUNG,
+            5000,
+            ptr::null_mut(),
+        );
+    }
+}
+
 pub fn set_proxy_env(config: &ProxyConfig) -> Result<(), String> {
     let env_vars = config.to_env_vars();
 
     #[cfg(target_os = "windows")]
     {
-        for (key, value) in &env_vars {
-            let output = Command::new("setx")
-                .args(&[key, value])
-                .creation_flags(0x08000000) // CREATE_NO_WINDOW
-                .output()
-                .map_err(|e| format!("执行 setx 失败: {}", e))?;
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let env_key = hkcu
+            .open_subkey_with_flags("Environment", KEY_SET_VALUE | KEY_QUERY_VALUE)
+            .map_err(|e| format!("打开注册表失败: {}", e))?;
 
-            if !output.status.success() {
-                return Err(format!("设置 {} 失败", key));
-            }
+        for (key, value) in &env_vars {
+            env_key
+                .set_value(key.as_str(), value)
+                .map_err(|e| format!("设置 {} 失败: {}", key, e))?;
         }
+
+        broadcast_env_change();
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -61,23 +102,16 @@ pub fn unset_proxy_env() -> Result<(), String> {
             "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
         ];
 
-        let ps_commands: Vec<String> = keys
-            .iter()
-            .map(|k| format!("[Environment]::SetEnvironmentVariable('{}', $null, 'User')", k))
-            .collect();
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let env_key = hkcu
+            .open_subkey_with_flags("Environment", KEY_SET_VALUE | KEY_QUERY_VALUE)
+            .map_err(|e| format!("打开注册表失败: {}", e))?;
 
-        let script = ps_commands.join("; ");
-
-        let output = Command::new("powershell")
-            .args(&["-NoProfile", "-NonInteractive", "-Command", &script])
-            .creation_flags(0x08000000)
-            .output()
-            .map_err(|e| format!("执行 PowerShell 失败: {}", e))?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("停止代理失败: {}", stderr));
+        for key in &keys {
+            let _ = env_key.delete_value(*key);
         }
+
+        broadcast_env_change();
     }
 
     #[cfg(not(target_os = "windows"))]

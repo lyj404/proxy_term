@@ -186,7 +186,7 @@ export component AppWindow inherits Window {
             alignment: center;
 
             Button {
-                text: root.proxy-running ? "■ 停止代理" : "▶ 启动代理";
+                text: root.proxy-running ? "⏹ 停止代理" : "⚡ 启动代理";
                 preferred-width: 120px;
                 clicked => {
                     if (root.proxy-running) {
@@ -210,7 +210,7 @@ export component AppWindow inherits Window {
             }
 
             Button {
-                text: "测试连接";
+                text: "↗ 测试连接";
                 preferred-width: 100px;
                 clicked => {
                     root.save-config(
