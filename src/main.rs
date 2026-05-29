@@ -4,9 +4,17 @@ mod config;
 mod launcher;
 mod proxy;
 
+use std::cell::Cell;
+use std::rc::Rc;
+
 use slint::SharedString;
 
 slint::include_modules!();
+
+use tray_icon::{
+    menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
+    MouseButton, TrayIconBuilder, TrayIconEvent,
+};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = AppWindow::new()?;
@@ -24,7 +32,116 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.set_no_proxy(SharedString::from(&saved_config.no_proxy));
     app.set_test_url(SharedString::from(&saved_config.test_url));
 
-    // 保存配置回调
+    // ── 系统托盘 ──────────────────────────────────────────────
+
+    // 加载图标文件为 RGBA
+    let icon_img = image::load_from_memory(include_bytes!("../assets/logo.ico"))
+        .map_err(|e| format!("加载托盘图标失败: {}", e))?
+        .into_rgba8();
+    let (icon_w, icon_h) = icon_img.dimensions();
+    let tray_icon = tray_icon::Icon::from_rgba(icon_img.into_raw(), icon_w, icon_h)
+        .map_err(|e| format!("创建托盘图标失败: {}", e))?;
+
+    // 创建托盘（含初始菜单 + tooltip）
+    let tray = {
+        let running = app.get_proxy_running();
+        let menu = build_tray_menu(running)?;
+        let t = TrayIconBuilder::new()
+            .with_tooltip(tooltip_text(running))
+            .with_icon(tray_icon)
+            .with_menu(Box::new(menu))
+            .build()?;
+        t.set_show_menu_on_left_click(false);
+        Rc::new(t)
+    };
+
+    // 定时器：轮询菜单事件 + 同步托盘状态
+    let poll_timer = slint::Timer::default();
+    let tray_for_timer = tray.clone();
+    let app_weak = app.as_weak();
+    let last_running = Cell::new(app.get_proxy_running());
+
+    poll_timer.start(
+        slint::TimerMode::Repeated,
+        std::time::Duration::from_millis(50),
+        move || {
+            let app = match app_weak.upgrade() {
+                Some(a) => a,
+                None => return,
+            };
+
+            // 同步托盘 tooltip 和菜单文字
+            let running = app.get_proxy_running();
+            if running != last_running.get() {
+                last_running.set(running);
+                let _ = tray_for_timer.set_tooltip(Some(tooltip_text(running)));
+                if let Ok(new_menu) = build_tray_menu(running) {
+                    tray_for_timer.set_menu(Some(Box::new(new_menu)));
+                }
+            }
+
+            // 处理菜单事件（右键）
+            if let Ok(event) = MenuEvent::receiver().try_recv() {
+                match event.id().0.as_str() {
+                    "show" => {
+                        let _ = app.window().show();
+                    }
+                    "toggle-proxy" => {
+                        if app.get_proxy_running() {
+                            app.invoke_stop_clicked();
+                        } else {
+                            let proxy_type = if app.get_proxy_type_index() == 1 {
+                                SharedString::from("SOCKS5")
+                            } else {
+                                SharedString::from("HTTP")
+                            };
+                            app.invoke_launch_clicked(
+                                proxy_type,
+                                app.get_host(),
+                                app.get_port(),
+                                app.get_no_proxy(),
+                            );
+                        }
+                    }
+                    "exit" => {
+                        let _ = slint::quit_event_loop();
+                    }
+                    _ => {}
+                }
+            }
+
+            // 处理左键点击托盘图标（切换窗口显示），忽略 Enter/Move/Leave 等事件
+            if let Ok(event) = TrayIconEvent::receiver().try_recv() {
+                if matches!(event, TrayIconEvent::Click { button: MouseButton::Left, .. }) {
+                    if app.window().is_visible() {
+                        let _ = app.window().hide();
+                    } else {
+                        let _ = app.window().show();
+                    }
+                }
+            }
+        },
+    );
+
+    // 窗口关闭 → 隐藏到托盘（不退出）
+    {
+        let app_weak = app.as_weak();
+        app.window().on_close_requested(move || {
+            if let Some(a) = app_weak.upgrade() {
+                let _ = a.window().hide();
+            }
+            slint::CloseRequestResponse::KeepWindowShown
+        });
+    }
+
+    // 退出程序（从托盘菜单触发）
+    {
+        app.on_exit_app(move || {
+            let _ = slint::quit_event_loop();
+        });
+    }
+
+    // ── 保存配置回调 ──────────────────────────────────────────
     {
         let app_weak = app.as_weak();
         app.on_save_config(move |proxy_type, host, port, no_proxy, test_url| {
@@ -51,7 +168,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    // 启动代理回调
+    // ── 启动代理回调 ──────────────────────────────────────────
     {
         let app_weak = app.as_weak();
 
@@ -105,7 +222,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    // 停止代理回调
+    // ── 停止代理回调 ──────────────────────────────────────────
     {
         let app_weak = app.as_weak();
 
@@ -138,7 +255,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    // 测试连接回调
+    // ── 测试连接回调 ──────────────────────────────────────────
     {
         let app_weak = app.as_weak();
 
@@ -192,7 +309,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    app.run()?;
+    // 必须使用 run_event_loop_until_quit，否则窗口隐藏后事件循环会退出
+    app.show()?;
+    slint::run_event_loop_until_quit()?;
 
     Ok(())
+}
+
+fn tooltip_text(running: bool) -> &'static str {
+    if running {
+        "Proxy Term - 代理已启动"
+    } else {
+        "Proxy Term - 代理未启动"
+    }
+}
+
+fn build_tray_menu(proxy_running: bool) -> Result<Menu, tray_icon::menu::Error> {
+    let toggle_text = if proxy_running {
+        "停止代理"
+    } else {
+        "启动代理"
+    };
+    Menu::with_items(&[
+        &MenuItem::with_id("show", "显示窗口", true, None),
+        &MenuItem::with_id("toggle-proxy", toggle_text, true, None),
+        &PredefinedMenuItem::separator(),
+        &MenuItem::with_id("exit", "退出", true, None),
+    ])
 }
