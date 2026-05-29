@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Proxy Term
+Comment=A desktop proxy management tool with GUI
+Exec=proxy-term
+Icon=proxy-term
+Terminal=false
+Type=Application
+Categories=Network;Utility;

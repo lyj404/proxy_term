@@ -22,6 +22,10 @@ strip = true
 panic = "abort"
 opt-level = "z"
 
+[[bin]]
+name = "proxy-term"
+path = "src/main.rs"
+
 [build-dependencies]
 slint-build = "1.16"
 winres = "0.1"
