@@ -116,7 +116,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // 处理左键点击托盘图标（切换窗口显示），忽略 Enter/Move/Leave 等事件
             if let Ok(event) = TrayIconEvent::receiver().try_recv() {
-                if matches!(event, TrayIconEvent::Click { button: MouseButton::Left, .. }) {
+                if matches!(
+                    event,
+                    TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        ..
+                    }
+                ) {
                     if app.window().is_visible() {
                         let _ = app.window().hide();
                     } else {
@@ -149,7 +155,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let app_weak = app.as_weak();
         app.on_save_config(move |proxy_type, host, port, no_proxy, test_url| {
-            let app = app_weak.unwrap();
+            let Some(app) = app_weak.upgrade() else {
+                return;
+            };
 
             let cfg = config::AppConfig {
                 proxy_type: proxy_type.to_string(),
@@ -177,7 +185,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let app_weak = app.as_weak();
 
         app.on_launch_clicked(move |proxy_type_str, host, port, no_proxy| {
-            let app = app_weak.unwrap();
+            let Some(app) = app_weak.upgrade() else {
+                return;
+            };
 
             let proxy_type = match proxy_type_str.as_str() {
                 "SOCKS5" => proxy::ProxyType::Socks5,
@@ -193,12 +203,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             };
 
-            let config = proxy::ProxyConfig::new(
-                proxy_type,
-                &host.to_string(),
-                port_num,
-                &no_proxy.to_string(),
-            );
+            if let Err(e) = proxy::validate_host(host.as_ref()) {
+                app.set_status_text(SharedString::from(e));
+                app.set_status_type(2);
+                return;
+            }
+            if let Err(e) = proxy::validate_no_proxy(no_proxy.as_ref()) {
+                app.set_status_text(SharedString::from(e));
+                app.set_status_type(2);
+                return;
+            }
+
+            let config =
+                proxy::ProxyConfig::new(proxy_type, host.as_ref(), port_num, no_proxy.as_ref());
 
             app.set_status_text(SharedString::from("正在设置代理..."));
             app.set_status_type(0);
@@ -208,7 +225,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let result = launcher::set_proxy_env(&config);
 
                 let _ = slint::invoke_from_event_loop(move || {
-                    let app = app_weak2.unwrap();
+                    let Some(app) = app_weak2.upgrade() else {
+                        return;
+                    };
 
                     match result {
                         Ok(_) => {
@@ -231,7 +250,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let app_weak = app.as_weak();
 
         app.on_stop_clicked(move || {
-            let app = app_weak.unwrap();
+            let Some(app) = app_weak.upgrade() else {
+                return;
+            };
 
             app.set_status_text(SharedString::from("正在停止代理..."));
             app.set_status_type(0);
@@ -241,12 +262,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let result = launcher::unset_proxy_env();
 
                 let _ = slint::invoke_from_event_loop(move || {
-                    let app = app_weak2.unwrap();
+                    let Some(app) = app_weak2.upgrade() else {
+                        return;
+                    };
 
                     match result {
                         Ok(_) => {
                             app.set_proxy_running(false);
-                            app.set_status_text(SharedString::from("代理已停止，新终端将不再使用代理"));
+                            app.set_status_text(SharedString::from(
+                                "代理已停止，新终端将不再使用代理",
+                            ));
                             app.set_status_type(0);
                         }
                         Err(e) => {
@@ -264,7 +289,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let app_weak = app.as_weak();
 
         app.on_test_clicked(move |proxy_type_str, host, port, test_url| {
-            let app = app_weak.unwrap();
+            let Some(app) = app_weak.upgrade() else {
+                return;
+            };
 
             let proxy_type = match proxy_type_str.as_str() {
                 "SOCKS5" => proxy::ProxyType::Socks5,
@@ -280,12 +307,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             };
 
-            let config = proxy::ProxyConfig::new(
-                proxy_type,
-                &host.to_string(),
-                port_num,
-                "",
-            );
+            if let Err(e) = proxy::validate_host(host.as_ref()) {
+                app.set_status_text(SharedString::from(e));
+                app.set_status_type(2);
+                return;
+            }
+
+            let config = proxy::ProxyConfig::new(proxy_type, host.as_ref(), port_num, "");
 
             app.set_status_text(SharedString::from("正在测试连接..."));
             app.set_status_type(0);
@@ -296,7 +324,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let result = launcher::test_proxy_connection(&config, &test_url);
 
                 let _ = slint::invoke_from_event_loop(move || {
-                    let app = app_weak2.unwrap();
+                    let Some(app) = app_weak2.upgrade() else {
+                        return;
+                    };
 
                     match result {
                         Ok(msg) => {

@@ -22,7 +22,7 @@ impl Default for AppConfig {
     }
 }
 
-fn get_config_path() -> Result<PathBuf, String> {
+pub fn get_config_dir() -> Result<PathBuf, String> {
     let config_dir = if cfg!(target_os = "windows") {
         std::env::var("APPDATA").map_err(|_| "无法获取 APPDATA 目录".to_string())?
     } else {
@@ -33,7 +33,11 @@ fn get_config_path() -> Result<PathBuf, String> {
     let dir = PathBuf::from(config_dir).join("proxy_term");
     std::fs::create_dir_all(&dir).map_err(|e| format!("创建配置目录失败: {}", e))?;
 
-    Ok(dir.join("config.json"))
+    Ok(dir)
+}
+
+fn get_config_path() -> Result<PathBuf, String> {
+    Ok(get_config_dir()?.join("config.json"))
 }
 
 pub fn load_config() -> AppConfig {
@@ -41,12 +45,7 @@ pub fn load_config() -> AppConfig {
         Ok(path) => {
             if path.exists() {
                 match std::fs::read_to_string(&path) {
-                    Ok(content) => {
-                        match serde_json::from_str(&content) {
-                            Ok(config) => config,
-                            Err(_) => AppConfig::default(),
-                        }
-                    }
+                    Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
                     Err(_) => AppConfig::default(),
                 }
             } else {
@@ -59,9 +58,8 @@ pub fn load_config() -> AppConfig {
 
 pub fn save_config(config: &AppConfig) -> Result<(), String> {
     let path = get_config_path()?;
-    let content = serde_json::to_string_pretty(config)
-        .map_err(|e| format!("序列化配置失败: {}", e))?;
-    std::fs::write(&path, content)
-        .map_err(|e| format!("写入配置文件失败: {}", e))?;
+    let content =
+        serde_json::to_string_pretty(config).map_err(|e| format!("序列化配置失败: {}", e))?;
+    std::fs::write(&path, content).map_err(|e| format!("写入配置文件失败: {}", e))?;
     Ok(())
 }

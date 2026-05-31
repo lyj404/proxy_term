@@ -73,6 +73,27 @@ impl ProxyConfig {
     }
 }
 
+pub fn validate_host(host: &str) -> Result<(), String> {
+    if host.trim().is_empty() {
+        return Err("错误: 代理地址不能为空".to_string());
+    }
+    if contains_control_or_newline(host) {
+        return Err("错误: 代理地址不能包含控制字符或换行".to_string());
+    }
+    Ok(())
+}
+
+pub fn validate_no_proxy(no_proxy: &str) -> Result<(), String> {
+    if contains_control_or_newline(no_proxy) {
+        return Err("错误: 绕过列表不能包含控制字符或换行".to_string());
+    }
+    Ok(())
+}
+
+fn contains_control_or_newline(value: &str) -> bool {
+    value.chars().any(|c| c.is_control())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -92,5 +113,18 @@ mod tests {
         let vars = config.to_env_vars();
         assert_eq!(vars.get("all_proxy").unwrap(), "socks5://127.0.0.1:1080");
         assert!(!vars.contains_key("no_proxy"));
+    }
+
+    #[test]
+    fn test_validate_host_rejects_empty_and_control_chars() {
+        assert!(validate_host("").is_err());
+        assert!(validate_host("127.0.0.1\nexport BAD=1").is_err());
+        assert!(validate_host("127.0.0.1").is_ok());
+    }
+
+    #[test]
+    fn test_validate_no_proxy_rejects_control_chars() {
+        assert!(validate_no_proxy("localhost,127.0.0.1").is_ok());
+        assert!(validate_no_proxy("localhost\nbad").is_err());
     }
 }

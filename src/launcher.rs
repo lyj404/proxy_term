@@ -3,12 +3,28 @@ use winreg::enums::*;
 #[cfg(target_os = "windows")]
 use winreg::RegKey;
 
+#[cfg(target_os = "windows")]
+use crate::config;
 use crate::proxy::ProxyConfig;
 
 #[allow(dead_code)]
 const START_MARKER: &str = "# Proxy Term - Start";
 #[allow(dead_code)]
 const END_MARKER: &str = "# Proxy Term - End";
+#[cfg(target_os = "windows")]
+const WINDOWS_PROXY_KEYS: [&str; 8] = [
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+    "no_proxy",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
+];
+
+#[cfg(target_os = "windows")]
+type SavedEnv = std::collections::HashMap<String, Option<String>>;
 
 #[cfg(target_os = "windows")]
 fn broadcast_env_change() {
@@ -60,6 +76,8 @@ pub fn set_proxy_env(config: &ProxyConfig) -> Result<(), String> {
             .open_subkey_with_flags("Environment", KEY_SET_VALUE | KEY_QUERY_VALUE)
             .map_err(|e| format!("打开注册表失败: {}", e))?;
 
+        save_existing_windows_env(&env_key)?;
+
         for (key, value) in &env_vars {
             env_key
                 .set_value(key.as_str(), value)
@@ -77,9 +95,10 @@ pub fn set_proxy_env(config: &ProxyConfig) -> Result<(), String> {
         let mut lines = Vec::new();
         lines.push(START_MARKER.to_string());
         for (key, value) in &env_vars {
+            let escaped = shell_single_quote(value);
             match shell.as_str() {
-                "fish" => lines.push(format!("set -gx {} \"{}\"", key, value)),
-                _ => lines.push(format!("export {}=\"{}\"", key, value)),
+                "fish" => lines.push(format!("set -gx {} {}", key, escaped)),
+                _ => lines.push(format!("export {}={}", key, escaped)),
             }
         }
         lines.push(END_MARKER.to_string());
@@ -87,8 +106,7 @@ pub fn set_proxy_env(config: &ProxyConfig) -> Result<(), String> {
 
         let content = std::fs::read_to_string(&rc_file).unwrap_or_default();
         let new_content = replace_or_append_config(&content, &new_config);
-        std::fs::write(&rc_file, new_content)
-            .map_err(|e| format!("写入文件失败: {}", e))?;
+        std::fs::write(&rc_file, new_content).map_err(|e| format!("写入文件失败: {}", e))?;
     }
 
     Ok(())
@@ -97,19 +115,12 @@ pub fn set_proxy_env(config: &ProxyConfig) -> Result<(), String> {
 pub fn unset_proxy_env() -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        let keys = [
-            "http_proxy", "https_proxy", "all_proxy", "no_proxy",
-            "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
-        ];
-
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
         let env_key = hkcu
             .open_subkey_with_flags("Environment", KEY_SET_VALUE | KEY_QUERY_VALUE)
             .map_err(|e| format!("打开注册表失败: {}", e))?;
 
-        for key in &keys {
-            let _ = env_key.delete_value(*key);
-        }
+        restore_windows_env(&env_key)?;
 
         broadcast_env_change();
     }
@@ -121,8 +132,7 @@ pub fn unset_proxy_env() -> Result<(), String> {
 
         if let Ok(content) = std::fs::read_to_string(&rc_file) {
             let new_content = remove_config(&content);
-            std::fs::write(&rc_file, new_content)
-                .map_err(|e| format!("写入文件失败: {}", e))?;
+            std::fs::write(&rc_file, new_content).map_err(|e| format!("写入文件失败: {}", e))?;
         }
     }
 
@@ -156,10 +166,71 @@ fn get_shell_rc_file(shell: &str) -> Result<String, String> {
     Ok(rc_file)
 }
 
+#[cfg(target_os = "windows")]
+fn windows_state_path() -> Result<std::path::PathBuf, String> {
+    Ok(config::get_config_dir()?.join("windows-env-backup.json"))
+}
+
+#[cfg(target_os = "windows")]
+fn save_existing_windows_env(env_key: &RegKey) -> Result<(), String> {
+    let path = windows_state_path()?;
+    if path.exists() {
+        return Ok(());
+    }
+
+    let mut saved = SavedEnv::new();
+    for key in WINDOWS_PROXY_KEYS {
+        let value = env_key.get_value::<String, _>(key).ok();
+        saved.insert(key.to_string(), value);
+    }
+
+    let content = serde_json::to_string_pretty(&saved)
+        .map_err(|e| format!("序列化环境变量备份失败: {}", e))?;
+    std::fs::write(path, content).map_err(|e| format!("写入环境变量备份失败: {}", e))?;
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn restore_windows_env(env_key: &RegKey) -> Result<(), String> {
+    let path = windows_state_path()?;
+    if !path.exists() {
+        for key in WINDOWS_PROXY_KEYS {
+            let _ = env_key.delete_value(key);
+        }
+        return Ok(());
+    }
+
+    let content =
+        std::fs::read_to_string(&path).map_err(|e| format!("读取环境变量备份失败: {}", e))?;
+    let saved: SavedEnv =
+        serde_json::from_str(&content).map_err(|e| format!("解析环境变量备份失败: {}", e))?;
+
+    for key in WINDOWS_PROXY_KEYS {
+        match saved.get(key).and_then(|value| value.as_ref()) {
+            Some(value) => env_key
+                .set_value(key, value)
+                .map_err(|e| format!("恢复 {} 失败: {}", key, e))?,
+            None => {
+                let _ = env_key.delete_value(key);
+            }
+        }
+    }
+
+    let _ = std::fs::remove_file(path);
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn shell_single_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
 #[allow(dead_code)]
 fn replace_or_append_config(content: &str, new_config: &str) -> String {
     if let Some(start) = content.find(START_MARKER) {
-        if let Some(end) = content.find(END_MARKER) {
+        let end_search_start = start + START_MARKER.len();
+        if let Some(relative_end) = content[end_search_start..].find(END_MARKER) {
+            let end = end_search_start + relative_end;
             let end_pos = end + END_MARKER.len();
             // 替换标记及其之间的内容
             let before = &content[..start];
@@ -183,7 +254,9 @@ fn replace_or_append_config(content: &str, new_config: &str) -> String {
 #[allow(dead_code)]
 fn remove_config(content: &str) -> String {
     if let Some(start) = content.find(START_MARKER) {
-        if let Some(end) = content.find(END_MARKER) {
+        let end_search_start = start + START_MARKER.len();
+        if let Some(relative_end) = content[end_search_start..].find(END_MARKER) {
+            let end = end_search_start + relative_end;
             let end_pos = end + END_MARKER.len();
             let before = &content[..start];
             let after = &content[end_pos..];
@@ -205,8 +278,7 @@ fn remove_config(content: &str) -> String {
 pub fn test_proxy_connection(config: &ProxyConfig, test_url: &str) -> Result<String, String> {
     let proxy_url = config.proxy_url();
 
-    let proxy = ureq::Proxy::new(&proxy_url)
-        .map_err(|e| format!("无效的代理地址: {}", e))?;
+    let proxy = ureq::Proxy::new(&proxy_url).map_err(|e| format!("无效的代理地址: {}", e))?;
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .proxy(Some(proxy))
         .timeout_global(Some(std::time::Duration::from_secs(5)))
@@ -233,7 +305,8 @@ mod tests {
     #[test]
     fn test_replace_or_append_config() {
         let content = "# some config\nalias ll='ls -la'";
-        let new_config = "# Proxy Term - Start\nexport http_proxy=\"http://127.0.0.1:7890\"\n# Proxy Term - End";
+        let new_config =
+            "# Proxy Term - Start\nexport http_proxy=\"http://127.0.0.1:7890\"\n# Proxy Term - End";
 
         let result = replace_or_append_config(content, new_config);
         assert!(result.contains("# Proxy Term - Start"));
@@ -259,5 +332,22 @@ mod tests {
         assert!(!result.contains("# Proxy Term - Start"));
         assert!(!result.contains("http_proxy"));
         assert!(result.contains("alias ll='ls -la'"));
+    }
+
+    #[test]
+    fn test_marker_end_before_start_is_ignored() {
+        let content = "# Proxy Term - End\nkeep\n# Proxy Term - Start\nold";
+        let new_config = "# Proxy Term - Start\nnew\n# Proxy Term - End";
+
+        let result = replace_or_append_config(content, new_config);
+        assert!(result.starts_with(content));
+        assert!(result.ends_with(new_config));
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn test_shell_single_quote_escapes_quotes_and_substitution() {
+        let result = shell_single_quote("a'b$(touch /tmp/nope)");
+        assert_eq!(result, "'a'\\''b$(touch /tmp/nope)'");
     }
 }
