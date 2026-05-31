@@ -188,15 +188,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
     );
 
+    // AppIndicator/GTK owns the Linux tray menu; pump GTK events from Slint's loop.
+    #[cfg(target_os = "linux")]
+    let _gtk_event_timer = {
+        let timer = slint::Timer::default();
+        timer.start(
+            slint::TimerMode::Repeated,
+            std::time::Duration::from_millis(50),
+            || {
+                while gtk::events_pending() {
+                    gtk::main_iteration_do(false);
+                }
+            },
+        );
+        timer
+    };
+
     // 窗口关闭 → 隐藏到托盘（不退出）
     {
-        let app_weak = app.as_weak();
-        app.window().on_close_requested(move || {
-            if let Some(a) = app_weak.upgrade() {
-                let _ = a.window().hide();
-            }
-            slint::CloseRequestResponse::KeepWindowShown
-        });
+        app.window()
+            .on_close_requested(|| slint::CloseRequestResponse::HideWindow);
     }
 
     // 退出程序（从托盘菜单触发）
@@ -500,7 +511,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    // 必须使用 run_event_loop_until_quit，否则窗口隐藏后事件循环会退出
+    // 必须使用 run_event_loop_until_quit，退出只能由托盘菜单或应用回调显式触发
     app.show()?;
     slint::run_event_loop_until_quit()?;
 
