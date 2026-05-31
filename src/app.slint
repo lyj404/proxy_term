@@ -66,11 +66,14 @@ export component AppWindow inherits Window {
     title: "Proxy Term";
     icon: @image-url("../assets/logo.svg");
     preferred-width: 420px;
-    preferred-height: 440px;
+    preferred-height: 520px;
     background: #fafafa;
 
     in-out property <string> status-text: "未启动";
     in-out property <bool> proxy-running: false;
+    in-out property <int> preset-index: 0;
+    in-out property <[string]> preset-names: ["默认"];
+    in-out property <string> preset-name: "默认";
     in-out property <int> proxy-type-index: 0;
     in-out property <int> status-type: 0;
     in-out property <string> host: "127.0.0.1";
@@ -81,7 +84,10 @@ export component AppWindow inherits Window {
     callback launch-clicked(string, string, string, string);
     callback stop-clicked();
     callback test-clicked(string, string, string, string);
-    callback save-config(string, string, string, string, string);
+    callback preset-selected(int);
+    callback save-config(int, string, string, string, string, string, string);
+    callback save-as-preset(string, string, string, string, string, string);
+    callback open-terminal();
     callback exit-app();
 
     VerticalLayout {
@@ -96,6 +102,50 @@ export component AppWindow inherits Window {
                 font-size: 20px;
                 font-weight: 600;
                 color: #1a1a1a;
+            }
+        }
+
+        Separator {}
+
+        // 预设区域
+        VerticalLayout {
+            spacing: 12px;
+            padding-left: 4px;
+            padding-right: 4px;
+
+            Text {
+                text: "预设";
+                font-size: 14px;
+                font-weight: 500;
+                color: #616161;
+            }
+
+            HorizontalLayout {
+                spacing: 12px;
+
+                Text {
+                    text: "当前";
+                    width: 70px;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                    color: #424242;
+                    font-size: 13px;
+                }
+
+                preset := ComboBox {
+                    model: root.preset-names;
+                    current-index: root.preset-index;
+                    selected(_) => {
+                        root.preset-selected(self.current-index);
+                    }
+                }
+            }
+
+            InputField {
+                label: "名称";
+                placeholder: "默认";
+                value: root.preset-name;
+                edited(text) => { root.preset-name = text; }
             }
         }
 
@@ -193,6 +243,8 @@ export component AppWindow inherits Window {
                         root.stop-clicked();
                     } else {
                         root.save-config(
+                            root.preset-index,
+                            root.preset-name,
                             proxy-type.current-value,
                             root.host,
                             root.port,
@@ -214,6 +266,8 @@ export component AppWindow inherits Window {
                 preferred-width: 100px;
                 clicked => {
                     root.save-config(
+                        root.preset-index,
+                        root.preset-name,
                         proxy-type.current-value,
                         root.host,
                         root.port,
@@ -226,6 +280,50 @@ export component AppWindow inherits Window {
                         root.port,
                         root.test-url
                     );
+                }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 12px;
+            alignment: center;
+
+            Button {
+                text: "保存预设";
+                preferred-width: 92px;
+                clicked => {
+                    root.save-config(
+                        root.preset-index,
+                        root.preset-name,
+                        proxy-type.current-value,
+                        root.host,
+                        root.port,
+                        root.no-proxy,
+                        root.test-url
+                    );
+                }
+            }
+
+            Button {
+                text: "新建预设";
+                preferred-width: 92px;
+                clicked => {
+                    root.save-as-preset(
+                        root.preset-name,
+                        proxy-type.current-value,
+                        root.host,
+                        root.port,
+                        root.no-proxy,
+                        root.test-url
+                    );
+                }
+            }
+
+            Button {
+                text: "打开终端";
+                preferred-width: 92px;
+                clicked => {
+                    root.open-terminal();
                 }
             }
         }

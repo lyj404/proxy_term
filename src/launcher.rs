@@ -139,6 +139,78 @@ pub fn unset_proxy_env() -> Result<(), String> {
     Ok(())
 }
 
+pub fn is_proxy_env_set() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let Ok(env_key) = hkcu.open_subkey_with_flags("Environment", KEY_QUERY_VALUE) else {
+            return false;
+        };
+        WINDOWS_PROXY_KEYS
+            .iter()
+            .any(|key| env_key.get_value::<String, _>(key).is_ok())
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let shell = detect_user_shell();
+        let Ok(rc_file) = get_shell_rc_file(&shell) else {
+            return false;
+        };
+        let Ok(content) = std::fs::read_to_string(&rc_file) else {
+            return false;
+        };
+        content.contains(START_MARKER) && content.contains(END_MARKER)
+    }
+}
+
+pub fn open_terminal() -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("powershell.exe")
+            .spawn()
+            .map_err(|e| format!("打开终端失败: {}", e))?;
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg("-a")
+            .arg("Terminal")
+            .spawn()
+            .map_err(|e| format!("打开终端失败: {}", e))?;
+        Ok(())
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        let terminals = [
+            "x-terminal-emulator",
+            "kgx",
+            "gnome-terminal",
+            "konsole",
+            "xfce4-terminal",
+            "alacritty",
+            "kitty",
+            "xterm",
+        ];
+        let mut last_error = None;
+        for terminal in terminals {
+            match std::process::Command::new(terminal).spawn() {
+                Ok(_) => return Ok(()),
+                Err(e) => last_error = Some(e),
+            }
+        }
+        Err(format!(
+            "打开终端失败: {}",
+            last_error
+                .map(|e| e.to_string())
+                .unwrap_or_else(|| "未找到可用终端".to_string())
+        ))
+    }
+}
+
 #[cfg(not(target_os = "windows"))]
 fn detect_user_shell() -> String {
     // 优先读取 SHELL 环境变量
@@ -277,6 +349,7 @@ fn remove_config(content: &str) -> String {
 
 pub fn test_proxy_connection(config: &ProxyConfig, test_url: &str) -> Result<String, String> {
     let proxy_url = config.proxy_url();
+    let start = std::time::Instant::now();
 
     let proxy = ureq::Proxy::new(&proxy_url).map_err(|e| format!("无效的代理地址: {}", e))?;
     let agent: ureq::Agent = ureq::Agent::config_builder()
@@ -291,11 +364,29 @@ pub fn test_proxy_connection(config: &ProxyConfig, test_url: &str) -> Result<Str
         .map_err(|e| format!("连接失败: {}", e))?;
 
     let status = response.status().as_u16();
+    let elapsed = start.elapsed().as_millis();
     if (200..400).contains(&status) {
-        Ok(format!("连接成功 (HTTP {})", status))
+        let mut msg = format!("连接成功 (HTTP {}, {} ms)", status, elapsed);
+        if let Ok(body) = response.into_body().read_to_string() {
+            let text = body.trim();
+            if is_likely_ip(text) {
+                msg.push_str(&format!(", 出口 IP {}", text));
+            }
+        }
+        Ok(msg)
     } else {
-        Err(format!("连接失败 (HTTP {})", status))
+        Err(format!("连接失败 (HTTP {}, {} ms)", status, elapsed))
     }
+}
+
+fn is_likely_ip(value: &str) -> bool {
+    if value.len() > 45 || value.is_empty() {
+        return false;
+    }
+    value
+        .chars()
+        .all(|c| c.is_ascii_hexdigit() || matches!(c, '.' | ':'))
+        && (value.contains('.') || value.contains(':'))
 }
 
 #[cfg(test)]
@@ -349,5 +440,13 @@ mod tests {
     fn test_shell_single_quote_escapes_quotes_and_substitution() {
         let result = shell_single_quote("a'b$(touch /tmp/nope)");
         assert_eq!(result, "'a'\\''b$(touch /tmp/nope)'");
+    }
+
+    #[test]
+    fn test_is_likely_ip() {
+        assert!(is_likely_ip("127.0.0.1"));
+        assert!(is_likely_ip("2001:db8::1"));
+        assert!(!is_likely_ip("hello"));
+        assert!(!is_likely_ip(""));
     }
 }
