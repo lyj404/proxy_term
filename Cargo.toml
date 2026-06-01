@@ -5,7 +5,7 @@ edition = "2021"
 build = "build.rs"
 
 [dependencies]
-slint = { version = "1.16", default-features = false, features = ["backend-winit", "renderer-femtovg", "std", "compat-1-2"] }
+slint = { version = "1.16", default-features = false, features = ["backend-winit", "renderer-software", "std", "compat-1-2"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ureq = { version = "3", default-features = false, features = ["rustls", "socks-proxy"] }
@@ -19,8 +19,8 @@ winreg = "0.52"
 gtk = "0.18"
 
 [profile.release]
-lto = "fat"
-codegen-units = 1
+lto = "thin"
+codegen-units = 16
 strip = true
 panic = "abort"
 opt-level = "z"
