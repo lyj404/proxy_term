@@ -7,9 +7,9 @@ use winreg::RegKey;
 use crate::config;
 use crate::proxy::ProxyConfig;
 
-#[allow(dead_code)]
+#[cfg(not(target_os = "windows"))]
 const START_MARKER: &str = "# Proxy Term - Start";
-#[allow(dead_code)]
+#[cfg(not(target_os = "windows"))]
 const END_MARKER: &str = "# Proxy Term - End";
 #[cfg(target_os = "windows")]
 const WINDOWS_PROXY_KEYS: [&str; 8] = [
@@ -146,9 +146,16 @@ pub fn is_proxy_env_set() -> bool {
         let Ok(env_key) = hkcu.open_subkey_with_flags("Environment", KEY_QUERY_VALUE) else {
             return false;
         };
-        WINDOWS_PROXY_KEYS
+        let has_keys = WINDOWS_PROXY_KEYS
             .iter()
-            .any(|key| env_key.get_value::<String, _>(key).is_ok())
+            .any(|key| env_key.get_value::<String, _>(key).is_ok());
+        if !has_keys {
+            return false;
+        }
+        // 确认是当前程序设置的代理（通过备份文件是否存在判断）
+        config::get_config_dir()
+            .map(|d| d.join("windows-env-backup.json").exists())
+            .unwrap_or(false)
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -297,7 +304,7 @@ fn shell_single_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-#[allow(dead_code)]
+#[cfg(not(target_os = "windows"))]
 fn replace_or_append_config(content: &str, new_config: &str) -> String {
     if let Some(start) = content.find(START_MARKER) {
         let end_search_start = start + START_MARKER.len();
@@ -323,7 +330,7 @@ fn replace_or_append_config(content: &str, new_config: &str) -> String {
     }
 }
 
-#[allow(dead_code)]
+#[cfg(not(target_os = "windows"))]
 fn remove_config(content: &str) -> String {
     if let Some(start) = content.find(START_MARKER) {
         let end_search_start = start + START_MARKER.len();
@@ -394,59 +401,63 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_replace_or_append_config() {
-        let content = "# some config\nalias ll='ls -la'";
-        let new_config =
-            "# Proxy Term - Start\nexport http_proxy=\"http://127.0.0.1:7890\"\n# Proxy Term - End";
-
-        let result = replace_or_append_config(content, new_config);
-        assert!(result.contains("# Proxy Term - Start"));
-        assert!(result.contains("alias ll='ls -la'"));
-    }
-
-    #[test]
-    fn test_replace_existing_config() {
-        let content = "# some config\n# Proxy Term - Start\nexport http_proxy=\"old\"\n# Proxy Term - End\nalias ll='ls -la'";
-        let new_config = "# Proxy Term - Start\nexport http_proxy=\"new\"\n# Proxy Term - End";
-
-        let result = replace_or_append_config(content, new_config);
-        assert!(result.contains("http_proxy=\"new\""));
-        assert!(!result.contains("http_proxy=\"old\""));
-        assert!(result.contains("alias ll='ls -la'"));
-    }
-
-    #[test]
-    fn test_remove_config() {
-        let content = "# some config\n# Proxy Term - Start\nexport http_proxy=\"http://127.0.0.1:7890\"\n# Proxy Term - End\nalias ll='ls -la'";
-
-        let result = remove_config(content);
-        assert!(!result.contains("# Proxy Term - Start"));
-        assert!(!result.contains("http_proxy"));
-        assert!(result.contains("alias ll='ls -la'"));
-    }
-
-    #[test]
-    fn test_marker_end_before_start_is_ignored() {
-        let content = "# Proxy Term - End\nkeep\n# Proxy Term - Start\nold";
-        let new_config = "# Proxy Term - Start\nnew\n# Proxy Term - End";
-
-        let result = replace_or_append_config(content, new_config);
-        assert!(result.starts_with(content));
-        assert!(result.ends_with(new_config));
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    #[test]
-    fn test_shell_single_quote_escapes_quotes_and_substitution() {
-        let result = shell_single_quote("a'b$(touch /tmp/nope)");
-        assert_eq!(result, "'a'\\''b$(touch /tmp/nope)'");
-    }
-
-    #[test]
     fn test_is_likely_ip() {
         assert!(is_likely_ip("127.0.0.1"));
         assert!(is_likely_ip("2001:db8::1"));
         assert!(!is_likely_ip("hello"));
         assert!(!is_likely_ip(""));
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    mod unix_tests {
+        use super::*;
+
+        #[test]
+        fn test_replace_or_append_config() {
+            let content = "# some config\nalias ll='ls -la'";
+            let new_config =
+                "# Proxy Term - Start\nexport http_proxy=\"http://127.0.0.1:7890\"\n# Proxy Term - End";
+
+            let result = replace_or_append_config(content, new_config);
+            assert!(result.contains("# Proxy Term - Start"));
+            assert!(result.contains("alias ll='ls -la'"));
+        }
+
+        #[test]
+        fn test_replace_existing_config() {
+            let content = "# some config\n# Proxy Term - Start\nexport http_proxy=\"old\"\n# Proxy Term - End\nalias ll='ls -la'";
+            let new_config = "# Proxy Term - Start\nexport http_proxy=\"new\"\n# Proxy Term - End";
+
+            let result = replace_or_append_config(content, new_config);
+            assert!(result.contains("http_proxy=\"new\""));
+            assert!(!result.contains("http_proxy=\"old\""));
+            assert!(result.contains("alias ll='ls -la'"));
+        }
+
+        #[test]
+        fn test_remove_config() {
+            let content = "# some config\n# Proxy Term - Start\nexport http_proxy=\"http://127.0.0.1:7890\"\n# Proxy Term - End\nalias ll='ls -la'";
+
+            let result = remove_config(content);
+            assert!(!result.contains("# Proxy Term - Start"));
+            assert!(!result.contains("http_proxy"));
+            assert!(result.contains("alias ll='ls -la'"));
+        }
+
+        #[test]
+        fn test_marker_end_before_start_is_ignored() {
+            let content = "# Proxy Term - End\nkeep\n# Proxy Term - Start\nold";
+            let new_config = "# Proxy Term - Start\nnew\n# Proxy Term - End";
+
+            let result = replace_or_append_config(content, new_config);
+            assert!(result.starts_with(content));
+            assert!(result.ends_with(new_config));
+        }
+
+        #[test]
+        fn test_shell_single_quote_escapes_quotes_and_substitution() {
+            let result = shell_single_quote("a'b$(touch /tmp/nope)");
+            assert_eq!(result, "'a'\\''b$(touch /tmp/nope)'");
+        }
     }
 }

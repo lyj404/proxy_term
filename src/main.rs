@@ -46,13 +46,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // ── 系统托盘 ──────────────────────────────────────────────
 
-    // 加载图标文件为 RGBA
-    let icon_img = image::load_from_memory(include_bytes!("../assets/logo.ico"))
-        .map_err(|e| format!("加载托盘图标失败: {}", e))?
-        .into_rgba8();
-    let (icon_w, icon_h) = icon_img.dimensions();
-    let tray_icon = tray_icon::Icon::from_rgba(icon_img.into_raw(), icon_w, icon_h)
-        .map_err(|e| format!("创建托盘图标失败: {}", e))?;
+    // 嵌入预解码的图标 RGBA 数据（由 build.rs 生成）
+    mod icon_data {
+        include!(concat!(env!("OUT_DIR"), "/icon.rs"));
+    }
+    let tray_icon = tray_icon::Icon::from_rgba(
+        icon_data::ICON_RGBA.to_vec(),
+        icon_data::ICON_WIDTH,
+        icon_data::ICON_HEIGHT,
+    )
+    .map_err(|e| format!("创建托盘图标失败: {}", e))?;
 
     // 创建托盘（含初始菜单 + tooltip）
     let tray = {
@@ -82,8 +85,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     poll_timer.start(
         slint::TimerMode::Repeated,
-        std::time::Duration::from_millis(50),
-        move || {
+        std::time::Duration::from_millis(200),
+            move || {
             let app = match app_weak.upgrade() {
                 Some(a) => a,
                 None => return,
@@ -194,7 +197,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let timer = slint::Timer::default();
         timer.start(
             slint::TimerMode::Repeated,
-            std::time::Duration::from_millis(50),
+            std::time::Duration::from_millis(200),
             || {
                 while gtk::events_pending() {
                     gtk::main_iteration_do(false);
@@ -598,7 +601,9 @@ fn apply_preset_to_app(app: &AppWindow, preset: &config::PresetConfig) {
 fn save_running_state(config: &Arc<Mutex<config::AppConfig>>, running: bool) {
     let mut config = config.lock().unwrap();
     config.last_running = running;
-    let _ = config::save_config(&config);
+    if let Err(e) = config::save_config(&config) {
+        eprintln!("保存运行状态失败: {}", e);
+    }
 }
 
 fn menu_signature(running: bool, config: &config::AppConfig) -> String {

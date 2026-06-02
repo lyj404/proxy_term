@@ -3,19 +3,10 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, PartialEq)]
 pub enum ProxyType {
     Http,
-    #[allow(dead_code)]
     Socks5,
 }
 
 impl ProxyType {
-    #[allow(dead_code)]
-    pub fn from_index(index: usize) -> Self {
-        match index {
-            0 => ProxyType::Http,
-            1 => ProxyType::Socks5,
-            _ => ProxyType::Http,
-        }
-    }
 
     pub fn scheme(&self) -> &str {
         match self {
